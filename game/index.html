@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RogueMS - Merrow Vale</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060c; color: #c8c8d8; font-family: "Courier New", monospace; overflow: hidden; }
+  #scene { position: fixed; inset: 0; }
+  .panel { position: fixed; background: rgba(8,10,20,0.82); border: 1px solid #2a3050; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+  #stats { top: 10px; left: 10px; width: 380px; }
+  #stats .title { color: #ffd24d; font-weight: bold; margin-bottom: 4px; }
+  #stats .attrs { color: #9ab; margin: 4px 0; }
+  #stats .where { color: #b0c0ff; }
+  #stats .quests { color: #7be07b; margin: 3px 0; }
+  #stats .qdone { color: #6a6; }
+  #stats .equip { color: #c0a070; font-size: 12px; }
+  .bar { position: relative; display: inline-block; width: 200px; height: 13px; background: #1a1f33; border: 1px solid #333a5a; vertical-align: middle; }
+  .bar .fill { height: 100%; }
+  .bar .hp { background: #b03040; } .bar .mp { background: #3060b0; } .bar .xp { background: #7a9a30; }
+  .bar span { position: absolute; inset: 0; font-size: 10px; text-align: center; color: #fff; line-height: 13px; }
+  #skills { bottom: 10px; left: 10px; max-width: 320px; }
+  #skills .sk { color: #7ddfff; } #skills .dim { color: #556; }
+  #log { bottom: 10px; right: 10px; width: 420px; max-height: 150px; overflow: hidden; font-size: 12px; }
+  #inv { top: 10px; right: 10px; width: 320px; max-height: 70vh; overflow: auto; display: none; }
+  #inv.open { display: block; }
+  #inv h3 { margin: 0 0 6px; color: #ffd24d; }
+  #inv .row { margin: 3px 0; }
+  #inv button { font: inherit; font-size: 11px; background: #22305a; color: #cfe; border: 1px solid #445; border-radius: 3px; cursor: pointer; }
+  #help { top: 10px; left: 50%; transform: translateX(-50%); color: #667; font-size: 11px; }
+  #minimap { position: absolute; top: 40px; right: 10px; display: none; background: rgba(5,6,12,0.85); border: 1px solid #334; image-rendering: pixelated; z-index: 5; }
+  #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 52%, rgba(2,3,8,0.5) 100%); z-index: 3; }
+  #shop { position: absolute; left: 10px; top: 110px; width: 250px; display: none; background: rgba(10,10,20,0.92); border: 1px solid #554; padding: 8px; z-index: 6; font-size: 12px; }
+  #shop h3 { margin: 0 0 6px; color: #ffd76a; font-size: 13px; }
+  #shop button,   #inv button { font: inherit; font-size: 10px; background: #22305a; color: #cfe; border: 1px solid #446; border-radius: 3px; cursor: pointer; margin-left: 4px; }
+  #doll { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; z-index: 7; }
+  #doll.open { display: block; }
+  #doll h3 { margin: 0 0 8px; color: #ffd24d; font-size: 13px; }
+  #dollWrap { display: flex; gap: 10px; align-items: center; }
+  #dollCanvas { width: 200px; height: 280px; flex: 0 0 200px; background: radial-gradient(circle at 50% 32%, #182240, #060a14); border-radius: 6px; cursor: grab; touch-action: none; }
+  #dollSlots { display: flex; flex-direction: column; gap: 8px; }
+  #dollSlots .tile { width: 58px; height: 50px; border: 1px solid #345; border-radius: 6px; background: rgba(20,26,48,0.7); display: flex; align-items: center; justify-content: center; position: relative; }
+  #dollSlots .tile .ic { height: 28px; }
+  #dollSlots .tl { position: absolute; top: 2px; left: 5px; font-size: 8px; color: #668; text-transform: uppercase; letter-spacing: .06em; }
+  #picker { top: 15%; left: 50%; transform: translateX(-50%); width: 320px; z-index: 7; background: rgba(10,12,22,0.95); border: 1px solid #446; }
+  #picker h3 { margin: 0 0 6px; color: #7ddfff; font-size: 13px; }
+  #picker .row { margin: 3px 0; }
+  #picker button { margin-left: 4px; font: inherit; font-size: 10px; background: #22305a; color: #cfe; border: 1px solid #446; border-radius: 3px; cursor: pointer; }
+  #create, #death {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(3,4,10,0.92); z-index: 10; flex-direction: column;
+  }
+  #death { display: none; color: #ff5050; font-size: 28px; }
+  #create .box { background: #0c1020; border: 1px solid #345; border-radius: 8px; padding: 24px 32px; width: 480px; }
+  #create h1 { color: #ffd24d; letter-spacing: 3px; margin: 0 0 4px; font-size: 26px; }
+  #create h2 { color: #8ab; font-size: 14px; margin: 0 0 16px; font-weight: normal; }
+  #create label { display: block; color: #8ab; margin: 12px 0 4px; }
+  #create button { font: inherit; margin: 2px 4px 2px 0; padding: 6px 14px; background: #1a2440; color: #cde; border: 1px solid #446; border-radius: 4px; cursor: pointer; }
+  #create button.on { background: #3a5090; border-color: #7af; color: #fff; }
+  #create input { font: inherit; background: #0a0e1a; color: #fff; border: 1px solid #446; padding: 6px; width: 100%; box-sizing: border-box; }
+  #blurb { color: #9ab; font-size: 12px; margin-top: 10px; min-height: 32px; }
+  #begin { margin-top: 14px !important; background: #2a5a3a !important; border-color: #6c8 !important; }
+  .ic { height: 20px; vertical-align: -4px; filter: invert(1); }
+  .banner { height: 90px; opacity: 0.7; filter: invert(1); }
+  #hotbar { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; padding: 6px; background: rgba(8,10,20,0.72); border: 1px solid #2a3050; border-radius: 8px; z-index: 6; }
+  .hb-slot { position: relative; width: 44px; height: 44px; border: 1px solid #33406a; border-radius: 6px; background: #121834; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .hb-slot:hover { border-color: #6a7bb0; }
+  .hb-slot.sel { border-color: #ffd24d; box-shadow: 0 0 6px #ffd24d55; }
+  .hb-slot.empty { opacity: 0.4; }
+  .hb-slot .ic { height: 26px; }
+  .hb-slot .hb-key { position: absolute; top: 1px; left: 3px; font-size: 9px; color: #9ad; }
+  .hb-slot .hb-cd { position: absolute; inset: 0; background: rgba(0,0,0,0.72); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #ffb0b0; }
+  .hb-slot.nomp { filter: grayscale(1) brightness(0.6); }
+  .hb-slot .dir { position: absolute; width: 13px; height: 13px; line-height: 13px; text-align: center; font-size: 9px; color: #cfe; background: rgba(30,42,80,0.95); border: 1px solid #44557f; border-radius: 3px; opacity: 0; transition: opacity 0.1s; }
+  .hb-slot:hover .dir { opacity: 1; }
+  .hb-slot .dir:hover { background: #3a4d80; color: #fff; }
+  .hb-slot .dir.u { top: -7px; left: 15px; }
+  .hb-slot .dir.d { bottom: -7px; left: 15px; }
+  .hb-slot .dir.l { left: -7px; top: 15px; }
+  .hb-slot .dir.r { right: -7px; top: 15px; }
+  #hbPick { bottom: 68px; left: 50%; transform: translateX(-50%); display: none; max-width: 460px; z-index: 8; }
+  #hbPick .pp-title { color: #ffd24d; font-weight: bold; margin-bottom: 6px; }
+  #hbPick button { font: inherit; font-size: 11px; background: #22305a; color: #cfe; border: 1px solid #446; border-radius: 4px; cursor: pointer; padding: 3px 6px; margin: 2px; display: inline-flex; align-items: center; gap: 4px; }
+  #hbPick button:hover { background: #33447a; }
+  #hbPick button.on { border-color: #ffd24d; }
+  #hbPick .ic { height: 16px; }
+  #travel { top: 150px; left: 10px; width: 330px; display: none; z-index: 7; max-height: 55vh; overflow: auto; }
+  #travel h3 { margin: 0 0 6px; color: #ffd24d; font-size: 13px; }
+  #travel .tr-map { margin: 6px 0; border-top: 1px solid #22304e; padding-top: 5px; }
+  #travel .tr-map b { color: #cfe; }
+  #travel .tr-map b.lock { color: #667; }
+  #travel .tr-meta { display: block; color: #8ab; font-size: 11px; }
+  #travel .tr-btns { margin-top: 3px; }
+  #travel button { font: inherit; font-size: 10px; background: #22305a; color: #cfe; border: 1px solid #446; border-radius: 3px; cursor: pointer; padding: 2px 6px; margin: 1px 3px 1px 0; }
+  #travel button:hover { background: #33447a; }
+  #travel .tr-note { color: #976; font-size: 11px; margin-top: 6px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+  <div id="scene"></div>
+  <div id="vignette"></div>
+  <canvas id="minimap" width="180" height="180"></canvas>
+  <div id="shop" class="panel"></div>
+
+  <div id="stats" class="panel" style="display:none"></div>
+  <div id="skills" class="panel" style="display:none"></div>
+  <div id="log" class="panel"></div>
+  <div id="inv" class="panel"><div id="invList"></div></div>
+  <div id="travel" class="panel"></div>
+  <div id="doll" class="panel"><h3>Equipment</h3><div id="dollWrap"><canvas id="dollCanvas" width="200" height="280"></canvas><div id="dollSlots"></div></div></div>
+  <div id="hotbar"></div>
+  <div id="hbPick" class="panel"></div>
+  <div id="picker" class="panel"></div>
+  <div id="bestiary" class="panel" style="display:none;max-height:70vh;overflow-y:auto"></div>
+  <div id="help" class="panel">WASD move &bull; skill bar: 1-9/0 cast, Shift+arrows aims the selected slot, hover a slot for click-arrows, right-click to rebind &bull; E talk/open &bull; &gt; descend &bull; &lt; climb up &bull; I pack &bull; B bestiary &bull; T waygate travel &bull; M map &bull; click to walk/use &bull; keys open chests/doors by walking into them &bull; merchants identify gear for 25g &bull; . wait &bull; icons: <a style="color:#8ab" href="https://game-icons.net">game-icons.net</a> (CC-BY) &bull; <button id="saveBtn" style="font:inherit;font-size:11px;background:#22305a;color:#cfe;border:1px solid #446;border-radius:3px;cursor:pointer">Save</button></div>
+
+  <div id="create">
+    <div class="box">
+      <div id="banner"></div>
+      <h1>ROGUEMS</h1>
+      <h2>a rogue-like in Merrow Vale &mdash; choose your destiny</h2>
+      <input id="name" placeholder="name your hero" maxlength="16">
+      <label>Class</label><div id="classPick"></div>
+      <label>Race (racial enchantments)</label><div id="racePick"></div>
+      <div id="blurb"></div>
+      <button id="begin">Enter Merrow Vale</button>
+      <button id="continue" style="display:none">Continue Journey</button>
+    </div>
+  </div>
+
+  <div id="death">YOU DIED<div style="font-size:14px;color:#99a;margin-top:10px">press Enter to wake in the inn</div></div>
+
+  <script type="module" src="src/game.js"></script>
+  <script type="module" src="src/laya.js"></script>
+</body>
+</html>

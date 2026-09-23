@@ -1,0 +1,5 @@
+KayKit asset packs (CC0 1.0 Universal)
+Created/distributed by Kay Lousberg - www.kaylousberg.com
+Packs used: KayKit Character Pack Adventures 1.0, KayKit Character Pack Skeletons 1.0, KayKit Dungeon Remastered 1.0
+License: CC0 1.0 Universal - https://creativecommons.org/publicdomain/zero/1.0/
+Source: https://github.com/KayKit-Game-Assets

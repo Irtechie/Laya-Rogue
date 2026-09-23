@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LayA x RogueRNG — live decision dashboard</title>
+<style>
+  :root { --bg:#070b10; --panel:#0d141c; --line:#1d2a36; --tx:#9fd8e8; --dim:#5c7a8a; --hi:#fff;
+          --green:#7dffa0; --amber:#ffd76a; --red:#ff7a5c; --violet:#c0a0ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:12px/1.45 "Cascadia Code",Consolas,monospace; }
+  header { display:flex; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; letter-spacing:2px; margin:0; color:var(--green); }
+  .badge { padding:2px 8px; border:1px solid var(--line); border-radius:10px; color:var(--dim); }
+  .live { color:var(--green); } .live.stale { color:var(--red); }
+  main { display:grid; grid-template-columns:repeat(12,1fr); gap:10px; padding:12px 18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .card h2 { margin:0 0 8px; font-size:11px; letter-spacing:1.5px; color:var(--dim); font-weight:normal; }
+  .tiles { grid-column:span 12; display:grid; grid-template-columns:repeat(9,1fr); gap:10px; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .tile .k { color:var(--dim); font-size:10px; letter-spacing:1px; }
+  .tile .v { font-size:19px; color:var(--hi); margin-top:2px; }
+  .tile .v small { font-size:11px; color:var(--dim); }
+  .span4 { grid-column:span 4; } .span5 { grid-column:span 5; } .span3 { grid-column:span 3; }
+  .span6 { grid-column:span 6; } .span12 { grid-column:span 12; }
+  .bar-row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  .bar-row .lab { width:72px; color:var(--dim); }
+  .bar-row .trk { flex:1; height:12px; background:#0a1118; border-radius:3px; overflow:hidden; }
+  .bar-row .fill { height:100%; border-radius:3px; }
+  .bar-row .num { width:110px; text-align:right; }
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  td,th { padding:2px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  th { color:var(--dim); font-weight:normal; }
+  .good { color:var(--green); } .warn { color:var(--amber); } .bad { color:var(--red); } .vio { color:var(--violet); } .dim { color:var(--dim); }
+  svg text { fill:var(--dim); font-size:9px; }
+  #recent tr[data-rid] { cursor:pointer; }
+  #recent tr[data-rid]:hover { background:#12202c; }
+  #recent tr[data-rid] td:first-child::before { content:"▸ "; color:var(--green); }
+  #modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:100; }
+  #modal .sheet { position:absolute; inset:4vh 6vw; background:var(--panel); border:1px solid var(--green);
+    border-radius:10px; padding:14px 18px; overflow:auto; }
+  #modal .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  #modal pre { background:#070d13; border:1px solid var(--line); border-radius:6px; padding:10px;
+    overflow:auto; max-height:70vh; margin:6px 0; white-space:pre-wrap; word-break:break-word; }
+  #modal h3 { margin:4px 0; color:var(--green); font-size:12px; letter-spacing:1px; }
+  #modal .q { border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:6px 0; }
+  #modal .close { position:sticky; top:0; float:right; background:#123; color:#9fe; border:1px solid #2c5;
+    border-radius:4px; cursor:pointer; padding:2px 10px; font:11px monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LayA DECISION MATRIX — ROGUERNG</h1>
+  <span class="badge live" id="live">● connecting…</span>
+  <span class="badge" id="modeBadge">—</span>
+  <span class="badge" id="mapBadge">—</span>
+  <span class="badge" id="upBadge">—</span>
+</header>
+<main>
+  <section class="tiles">
+    <div class="tile"><div class="k">TURNS LOGGED</div><div class="v" id="tEvents">–</div></div>
+    <div class="tile"><div class="k">WITH LAYa INTENT</div><div class="v" id="tIntent">–</div></div>
+    <div class="tile"><div class="k">BRIDGE p50</div><div class="v" id="tP50">–<small> ms</small></div></div>
+    <div class="tile"><div class="k">BRIDGE p95</div><div class="v" id="tP95">–<small> ms</small></div></div>
+    <div class="tile"><div class="k">LEVEL / HP</div><div class="v" id="tLvl">–</div></div>
+    <div class="tile"><div class="k">KILLS</div><div class="v" id="tKills">–</div></div>
+    <div class="tile"><div class="k">GOLD</div><div class="v" id="tGold">–</div></div>
+    <div class="tile"><div class="k">DEATHS</div><div class="v" id="tDeaths">–</div></div>
+    <div class="tile"><div class="k">MAP MAPPED</div><div class="v" id="tExpl">–</div></div>
+  </section>
+
+  <section class="card span12">
+    <h2>GAME — <a id="gameFull" href="#" target="_blank" style="color:var(--green)">open full</a>
+      <span class="dim">create a hero here and the LayA autopilot starts itself (or press P to toggle)</span></h2>
+    <iframe id="gameFrame" src="about:blank" style="width:100%;height:520px;border:1px solid var(--line);border-radius:6px;background:#000" title="RogueRNG"></iframe>
+  </section>
+
+  <section class="card span4">
+    <h2>INTENT MIX <span class="dim">% of turns where the bridge was consulted</span></h2>
+    <div id="intents"></div>
+  </section>
+  <section class="card span4">
+    <h2>WHO DECIDED <span class="dim">policy layer that emitted the action</span></h2>
+    <div id="vias"></div>
+  </section>
+  <section class="card span4">
+    <h2>INTENT HONESTY <span class="dim">avg confidence vs times executed</span></h2>
+    <table id="honesty"><tr><td class="dim">no data yet</td></tr></table>
+  </section>
+
+  <section class="card span6">
+    <h2>RUN TIMELINE <span class="dim">hp fraction / gold / kills, normalized</span></h2>
+    <svg id="timeline" width="100%" height="150" preserveAspectRatio="none" viewBox="0 0 600 150"></svg>
+    <div class="dim"><span style="color:var(--green)">— hp</span> &nbsp; <span style="color:var(--amber)">— gold</span> &nbsp; <span style="color:var(--violet)">— kills</span></div>
+  </section>
+  <section class="card span6">
+    <h2>MACRO MODE CHANGES <span class="dim">TOWN / OUT / DIVE transitions</span></h2>
+    <div id="modes" style="max-height:160px;overflow:auto"></div>
+  </section>
+
+  <section class="card span12">
+    <h2>LAST 30 DECISIONS</h2>
+    <div style="max-height:260px;overflow:auto">
+    <table id="recent"><tr><td class="dim">waiting for the autopilot to send events… press P in the game (or open the game with ?laya=1)</td></tr></table>
+    </div>
+  </section>
+</main>
+<div id="modal"><div class="sheet"><button class="close" onclick="closeModal()">close ✕</button><div id="modalBody"></div></div></div>
+<script>
+const COLORS = { fight:"#ff7a5c", cast:"#c0a0ff", flee:"#ffd76a", heal:"#7dffa0", explore:"#7ddfff",
+  loot:"#a0ffd8", descend:"#ffb060", ascend:"#d8c0a0", travel:"#80e0ff", errand:"#ffd7a0", wait:"#667788" };
+const VIA_COLORS = { laya:"#7dffa0", safety:"#ffd76a", macro:"#7ddfff", reflex:"#8899aa", watchdog:"#ff7a5c", sidestuck:"#ff7a5c" };
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+function bars(el, obj, colors, total, suffix) {
+  const keys = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+  el.innerHTML = keys.map(([k, v]) =>
+    '<div class="bar-row"><span class="lab">' + esc(k) + '</span>' +
+    '<span class="trk"><span class="fill" style="width:' + v + '%;background:' + (colors[k] || "#888") + '"></span></span>' +
+    '<span class="num">' + v.toFixed(1) + '%' + (suffix && total ? " · " + suffix : "") + '</span></div>').join("")
+    || '<div class="dim">no data</div>';
+}
+
+function line(svg, points, color, max, id) {
+  const W = 600, H = 150;
+  if (!points.length) return "";
+  const step = W / Math.max(1, points.length - 1);
+  const d = points.map((v, i) => (i ? "L" : "M") + (i * step).toFixed(1) + "," + (H - 12 - (max ? v / max : 0) * (H - 24)).toFixed(1)).join(" ");
+  return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.6"/>';
+}
+
+async function refresh() {
+  let s;
+  try { s = await (await fetch("/stats")).json(); }
+  catch (e) { $("live").textContent = "● bridge down"; $("live").className = "badge live stale"; return; }
+  const age = s.lastEventAgeS;
+  const live = age != null && age < 10;
+  $("live").textContent = live ? "● LIVE" : (age == null ? "○ no events" : "○ idle " + Math.round(age) + "s");
+  $("live").className = "badge live" + (live ? "" : " stale");
+  const l = s.latest || {};
+  $("modeBadge").textContent = l.mode || "—";
+  $("mapBadge").textContent = l.map || "—";
+  $("upBadge").textContent = "bridge up " + Math.round(s.bridgeUptimeS / 60) + " min";
+  $("tEvents").textContent = s.events;
+  $("tIntent").textContent = s.turns.withIntent + " (" + (s.events ? Math.round(100 * s.turns.withIntent / s.events) : 0) + "%)";
+  $("tP50").innerHTML = (s.bridge.p50Ms == null ? "–" : s.bridge.p50Ms) + "<small> ms</small>";
+  $("tP95").innerHTML = (s.bridge.p95Ms == null ? "–" : s.bridge.p95Ms) + "<small> ms</small>";
+  $("tLvl").innerHTML = (l.level ?? "–") + ' <small>hp ' + (l.hp ?? "–") + "</small>";
+  $("tKills").textContent = l.kills ?? "–";
+  $("tGold").textContent = l.gold ?? "–";
+  $("tDeaths").textContent = l.deaths ?? "–";
+  $("tExpl").textContent = (l.explored ?? "–") + (l.explored != null ? "%" : "");
+
+  bars($("intents"), s.intentPct, COLORS, s.turns.withIntent);
+  bars($("vias"), s.viaPct, VIA_COLORS, s.events);
+
+  const hon = Object.entries(s.intentCounts || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+    const ex = (s.intentExecuted || {})[k] || 0;
+    const c = s.intentAvgConf[k];
+    return "<tr><td style='color:" + (COLORS[k] || "#888") + "'>" + esc(k) + "</td><td>" + n + "</td>" +
+      "<td>" + (c == null ? "–" : c.toFixed(2)) + "</td>" +
+      "<td class='" + (ex ? "good" : "dim") + "'>" + ex + " (" + Math.round(100 * ex / n) + "%)</td></tr>";
+  });
+  $("honesty").innerHTML = hon.length
+    ? "<tr><th>intent</th><th>seen</th><th>avg conf</th><th>executed</th></tr>" + hon.join("")
+    : '<tr><td class="dim">no data yet</td></tr>';
+
+  const tl = s.timeline || [];
+  const maxGold = Math.max(1, ...tl.map(p => p.gold || 0));
+  const maxKills = Math.max(1, ...tl.map(p => p.kills || 0));
+  $("timeline").innerHTML =
+    line($("timeline"), tl.map(p => p.hpRatio == null ? 0 : p.hpRatio * 100), "var(--green)", 100) +
+    line($("timeline"), tl.map(p => (p.gold || 0) / maxGold * 100), "var(--amber)", 100) +
+    line($("timeline"), tl.map(p => (p.kills || 0) / maxKills * 100), "var(--violet)", 100);
+
+  $("modes").innerHTML = (s.modeChanges || []).slice().reverse().map(m =>
+    "<div><span class='dim'>t+" + m.t + "s</span> " + esc(m.mode) + " <span class='dim'>" + esc(m.via) + "</span></div>").join("")
+    || '<div class="dim">no transitions yet</div>';
+
+  const rows = (s.recent || []).map(e =>
+    "<tr" + (e.rid ? " data-rid='" + e.rid + "'" : "") + "><td class='dim'>" + e.t + "s</td><td>" + esc(e.mode) + "</td>" +
+    "<td style='color:" + (COLORS[e.intent] || "#445") + "'>" + esc(e.intent || "macro") + "</td>" +
+    "<td>" + (e.conf == null ? "" : e.conf.toFixed(2)) + "</td>" +
+    "<td class='" + (String(e.via).startsWith("laya") ? "good" : String(e.via).startsWith("safety") ? "warn" : String(e.via).startsWith("watchdog") ? "bad" : "dim") + "'>" + esc(e.via) + "</td>" +
+    "<td>" + esc(e.action) + "</td>" +
+    "<td class='dim'>" + esc(e.goal || "") + (e.plan ? " <span class='warn'>▸" + esc(e.plan) + "</span>" : "") + "</td>" +
+    "<td>" + (e.hpRatio != null ? Math.round(e.hpRatio * 100) + "%" : "") + "</td>" +
+    "<td class='dim'>" + (e.map || "") + "</td></tr>").join("");
+  $("recent").innerHTML = rows ? "<tr><th>t</th><th>mode</th><th>intent</th><th>conf</th><th>via</th><th>action</th><th>goal</th><th>hp</th><th>map</th></tr>" + rows
+    : '<tr><td class="dim">waiting for events…</td></tr>';
+}
+const gameUrl = "http://" + (location.hostname || "127.0.0.1") + ":4173/?laya=1";
+document.getElementById("gameFrame").src = gameUrl;
+document.getElementById("gameFull").href = gameUrl;
+
+// ---- decision drill-down: click a row -> exact state sent + full typed response ----
+function closeModal() { document.getElementById("modal").style.display = "none"; }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+document.getElementById("modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+document.getElementById("recent").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-rid]");
+  if (tr) openDecision(tr.dataset.rid);
+});
+
+function qBlock(name, a) {
+  let body = "";
+  if (a.type === "choice") {
+    body = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([k, v]) =>
+      '<div class="bar-row"><span class="lab">' + esc(k) + '</span><span class="trk">' +
+      '<span class="fill" style="width:' + (v * 100) + '%;background:' + (COLORS[k] || "#888") + '"></span></span>' +
+      '<span class="num">' + (v * 100).toFixed(1) + "%</span></div>").join("");
+    if (a.choice) body = "<div>answer: <b style='color:" + (COLORS[a.choice] || "#fff") + "'>" + esc(a.choice) +
+      "</b> conf " + (a.confidence != null ? a.confidence.toFixed(2) : "?") + "</div>" + body;
+  } else if (a.type === "score") {
+    body = "score <b>" + a.score + "</b> / " + (Object.keys(a.legend || {}).length - 1) +
+      " conf " + (a.confidence != null ? a.confidence.toFixed(2) : "?") +
+      Object.entries(a.probabilities).map(([i, v]) =>
+        "<div class='bar-row'><span class='lab'>L" + i + "</span><span class='trk'><span class='fill' style='width:" +
+        (v * 100) + "%;background:var(--amber)'></span></span><span class='num'>" + (v * 100).toFixed(1) + "%</span></div>" +
+        "<div class='dim' style='margin-left:78px'>" + esc((a.legend || {})[i] || "") + "</div>").join("");
+  } else {
+    body = "P(true) <b>" + a.noul + "</b> conf " + (a.confidence != null ? a.confidence.toFixed(2) : "?");
+  }
+  return "<div class='q'><b>" + esc(name) + "</b> <span class='dim'>" + a.type + "</span>" + body + "</div>";
+}
+
+async function openDecision(rid) {
+  const box = document.getElementById("modalBody");
+  box.innerHTML = "loading decision " + rid + "…";
+  document.getElementById("modal").style.display = "block";
+  let d;
+  try { d = await (await fetch("/decision/" + rid)).json(); }
+  catch (err) { box.innerHTML = "fetch failed: " + esc(err.message); return; }
+  if (d.error) { box.innerHTML = "no archived payload for rid " + esc(rid) + " — " + esc(d.error) +
+    " (only the last 400 bridge calls are kept)"; return; }
+  box.innerHTML = "<h3>DECISION #" + d.rid + " — " + d.ms + " ms — intent <b>" + esc(d.decision.intent) +
+    "</b> conf " + d.decision.confidence.toFixed(2) + ", threat " + d.decision.threat.toFixed(1) + "</h3>" +
+    "<div class='cols'><div><h3>INPUT — state sent to LayA</h3><pre>" +
+    esc(JSON.stringify(d.state, null, 1)) + "</pre></div>" +
+    "<div><h3>RESPONSE — all typed questions, one forward pass</h3>" +
+    Object.entries(d.answers).map(([n, a]) => qBlock(n, a)).join("") + "</div></div>";
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
