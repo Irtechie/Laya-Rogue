@@ -194,11 +194,30 @@ class Handler(BaseHTTPRequestHandler):
                 if len(EVENTS) % 50 == 0:
                     try:
                         os.makedirs(os.path.dirname(EVENTS_LOG), exist_ok=True)
+                        if os.path.exists(EVENTS_LOG) and os.path.getsize(EVENTS_LOG) > 10_000_000:
+                            os.replace(EVENTS_LOG, EVENTS_LOG + ".1")  # rotate, keep one old file
                         with open(EVENTS_LOG, "a") as f:
                             f.write(json.dumps(req) + "\n")
                     except OSError:
                         pass
             self._send(200, {"ok": True})
+        elif self.path == "/reset":
+            # start a clean run: clear in-memory telemetry, archive the event log
+            with LOCK:
+                EVENTS.clear()
+                DECISIONS.clear()
+                DECIDE_LOG.clear()
+                LAST_LATENCY_MS = None
+            try:
+                if os.path.exists(EVENTS_LOG):
+                    os.replace(EVENTS_LOG, EVENTS_LOG.replace(".jsonl", "-%d.jsonl" % int(time.time())))
+                import glob
+                archives = sorted(glob.glob(EVENTS_LOG.replace("events.jsonl", "events-*.jsonl")))
+                for old in archives[:-5]:  # keep the five most recent runs
+                    os.remove(old)
+            except OSError:
+                pass
+            self._send(200, {"ok": True, "reset": True})
         else:
             self._send(404, {"error": "unknown path"})
 

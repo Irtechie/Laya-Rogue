@@ -20,11 +20,30 @@ Action map (Core.act type -> macro intent):
     interact NPC, talk      -> errand
 """
 
+# The three typed primitives (identical in spirit to Jev's Choice/Score/Noul):
+#   Choice -> closed-set category + confidence + full probability table
+#   Score  -> position on an ordered scale, may land between levels
+#   Noul   -> strict binary check, returns P(true)
+# All are evaluated in parallel by ONE forward pass of the encoder: asking
+# seven questions costs the same ~100 ms as asking one.
+
+
+def Choice(instructions, criteria):
+    return {"type": "choice", "instructions": instructions, "criteria": criteria}
+
+
+def Score(instructions, criteria):
+    return {"type": "score", "instructions": instructions, "criteria": criteria}
+
+
+def Noul(instructions):
+    return {"type": "noul", "instructions": instructions}
+
+
 GAME_QUESTIONS = {
-    "intent": {
-        "type": "choice",
-        "instructions": "What single move should the adventurer make this turn?",
-        "criteria": {
+    "intent": Choice(
+        "What single move should the adventurer make this turn?",
+        {
             "fight": "step into or strike a monster within reach with weapon or melee skill",
             "cast": "cast an attack spell or ranged skill at a target in range",
             "flee": "run away from monsters toward stairs, the exit or town",
@@ -37,37 +56,26 @@ GAME_QUESTIONS = {
             "errand": "in town: talk to an NPC, buy, sell, identify, equip, rest at the inn",
             "wait": "hold position; nothing else is worth doing",
         },
-    },
-    "threat": {
-        "type": "score",
-        "instructions": "How dangerous is this turn for the adventurer?",
-        "criteria": [
+    ),
+    "threat": Score(
+        "How dangerous is this turn for the adventurer?",
+        [
             "level 0: harmless, no monsters can reach me",
             "level 1: tense, monsters nearby but not touching me",
             "level 2: dangerous, monsters adjacent and I could die soon",
             "level 3: lethal, I am about to die this turn",
         ],
-    },
-    "hp_critical": {
-        "type": "noul",
-        "instructions": "Is the adventurer hurt enough that healing or escaping matters more than fighting?",
-    },
-    "can_kill": {
-        "type": "noul",
-        "instructions": "Could the adventurer kill or badly wound a monster with one attack this turn?",
-    },
-    "objective_reachable": {
-        "type": "noul",
-        "instructions": "Is there a useful objective (item, chest, stairs, NPC, portal) close enough to head toward?",
-    },
-    "overmatched": {
-        "type": "noul",
-        "instructions": "Are the monsters around too strong for the adventurer to survive a fight?",
-    },
-    "pack_needs_tending": {
-        "type": "noul",
-        "instructions": "Should the adventurer go to town soon to sell loot, identify gear, buy supplies or turn in a quest?",
-    },
+    ),
+    "hp_critical": Noul(
+        "Is the adventurer hurt enough that healing or escaping matters more than fighting?"),
+    "can_kill": Noul(
+        "Could the adventurer kill or badly wound a monster with one attack this turn?"),
+    "objective_reachable": Noul(
+        "Is there a useful objective (item, chest, stairs, NPC, portal) close enough to head toward?"),
+    "overmatched": Noul(
+        "Are the monsters around too strong for the adventurer to survive a fight?"),
+    "pack_needs_tending": Noul(
+        "Should the adventurer go to town soon to sell loot, identify gear, buy supplies or turn in a quest?"),
 }
 
 
