@@ -122,8 +122,10 @@ export function macroDecision(f, decision) {
   const ps = planStep(f);
   if (ps) return ps;
   const needsHome = f.hpRatio < 0.5 || f.bag.length >= 16 || questTargets(f).length > 0;
-  if (needsHome) return { act: { type: "travel", target: "town" }, why: "macro:waygate-home" };
+  const townSealed = macro.travelCool.town > Date.now();
+  if (needsHome && !townSealed) return { act: { type: "travel", target: "town" }, why: "macro:waygate-home" };
   const d = diveChoice(f);
   if (d) return { act: { type: "travel", target: d.target, tier: d.tier }, why: "macro:waygate-dive" };
-  return { act: { type: "travel", target: "town" }, why: "macro:all-dived" }; // nowhere to dive: rest in town
+  if (!townSealed) return { act: { type: "travel", target: "town" }, why: "macro:all-dived" };
+  return { act: randomStep(), why: "macro:sealed-around" }; // everywhere sealed: wander until a cooldown lifts
 }

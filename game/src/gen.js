@@ -224,6 +224,32 @@ export function generateLayout(mapId, tier, archetype) {
   return LAYOUTS[archetype % LAYOUTS.length](rng);
 }
 
+// True when removing the floor cell (sx,sy) would split the rest of the floor
+// into two or more disconnected floor regions — an articulation point. One-wide
+// corridors are full of them. Used to keep blockers (locked doors/monsters) off
+// cells the player could seal themselves behind. Grid rows may be strings.
+export function isCutCell(g, sx, sy) {
+  if (!inb(sx, sy) || g[sy][sx] !== ".") return false;
+  const nbrs = [];
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nx = sx + dx, ny = sy + dy;
+    if (inb(nx, ny) && g[ny][nx] === ".") nbrs.push([nx, ny]);
+  }
+  if (nbrs.length === 0) return false;
+  // Flood the floor from the first neighbour, never passing through (sx,sy).
+  const seen = new Set([nbrs[0][0] + "," + nbrs[0][1]]);
+  const stack = [nbrs[0]];
+  while (stack.length) {
+    const [cx, cy] = stack.pop();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy, k = nx + "," + ny;
+      if (!inb(nx, ny) || (nx === sx && ny === sy) || g[ny][nx] !== "." || seen.has(k)) continue;
+      seen.add(k); stack.push([nx, ny]);
+    }
+  }
+  return nbrs.some(([x, y]) => !seen.has(x + "," + y));
+}
+
 export function layoutArchetype(mapId, tier) {
   return hashStr(mapId + ":" + tier) % LAYOUTS.length;
 }

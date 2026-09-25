@@ -14,7 +14,7 @@
 
 import { bestAttack, healAction, randomStep, stepToward } from "./actions.js";
 import { townErrand, wantedBook } from "./town.js";
-import { macro } from "./state.js";
+import { macro, isRej } from "./state.js";
 
 // ---------- primitive task library: done(f, st) + act(f, st) ----------
 
@@ -28,7 +28,7 @@ export const TASKS = {
     act: f => f.mapKind === "town" ? townErrand(f).act : null
   },
   buy: {
-    done: (f, st) => !st.need(f) || f.gold < st.price, // gave up: can't afford
+    done: (f, st) => !st.need(f) || f.gold < st.price || isRej("buy:" + st.key), // gave up: can't afford / shop refuses
     act: (f, st) => {
       const npc = f.ents.find(e => e.kind === "npc" && e.npcId === st.npcId);
       if (!npc) return randomStep();

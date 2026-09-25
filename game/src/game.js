@@ -8,7 +8,7 @@ import { EffectComposer } from "../vendor/examples/jsm/postprocessing/EffectComp
 import { RenderPass } from "../vendor/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "../vendor/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "../vendor/examples/jsm/postprocessing/OutputPass.js";
-import { Core, sellPrice } from "./core.js";
+import { Core, sellPrice, stairsBackDir } from "./core.js";
 import { RACES, CLASSES, SHOP, VENDORS, SKILLS, MAPS } from "./data.js";
 
 const urlSeed = new URLSearchParams(location.search).get("seed");
@@ -407,26 +407,33 @@ function buildMapMeshes(map) {
   if (map.stairs) {
     const stairsGroup = new THREE.Group();
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0xb9a98c, roughness: 0.85 });
+    // Built in local space with the lintel against the wall at -Y and the
+    // approach open at +Y; the group then turns its back into whichever wall
+    // the stairs hug.
     for (const sx of [-0.72, 0.72]) {
       const side = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.9, 1.3), stoneMat);
-      side.position.set(wx(map.stairs.x, map.w) + sx, wy(map.stairs.y, map.h), 0.65);
+      side.position.set(sx, 0, 0.65);
       stairsGroup.add(side);
     }
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.3, 0.36), stoneMat);
-    lintel.position.set(wx(map.stairs.x, map.w), wy(map.stairs.y, map.h) - 0.85, 1.05);
+    lintel.position.set(0, -0.85, 1.05);
     stairsGroup.add(lintel);
     for (let i = 0; i < 4; i++) {
       const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.34, 0.15), stoneMat);
-      step.position.set(wx(map.stairs.x, map.w), wy(map.stairs.y, map.h) - 0.55 + i * 0.36, 0.16 + i * 0.14);
+      step.position.set(0, -0.55 + i * 0.36, 0.16 + i * 0.14);
       stairsGroup.add(step);
     }
     const shaft = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 1.6),
       new THREE.MeshStandardMaterial({ color: 0x030409, roughness: 1 }));
-    shaft.position.set(wx(map.stairs.x, map.w), wy(map.stairs.y, map.h) + 0.9, -0.6);
+    shaft.position.set(0, 0.9, -0.6);
     stairsGroup.add(shaft);
     const glow = new THREE.PointLight(0xffb060, 5, 5);
-    glow.position.set(wx(map.stairs.x, map.w), wy(map.stairs.y, map.h), 1.5);
+    glow.position.set(0, 0, 1.5);
     stairsGroup.add(glow);
+    const backWall = stairsBackDir(map);
+    stairsGroup.rotation.z = backWall === "S" ? Math.PI : backWall === "E" ? Math.PI / 2 : backWall === "W" ? -Math.PI / 2 : 0;
+    stairsGroup.position.set(wx(map.stairs.x, map.w), wy(map.stairs.y, map.h), 0);
+    stairsGroup.userData.backWall = backWall;
     mapGroup.add(stairsGroup);
     mapGroup.userData.stairsGroup = stairsGroup;
   }

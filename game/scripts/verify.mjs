@@ -6,7 +6,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
-import { SKILLS } from "../src/data.js";
+import { SKILLS, MAPS } from "../src/data.js";
+import { Core } from "../src/core.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".png": "image/png" };
@@ -75,6 +76,78 @@ async function walkTo(page, tx, ty, limit = 300) {
 
 (async () => {
   const srv = await serve();
+
+  // Node-side sweep: every generated floor must be escapable — stairs down
+  // and the return portal reachable from spawn with the strongroom door and
+  // every locked chest still shut. And the stairs must hug a wall, never
+  // stand free in the middle of a hall. Ten worlds, all maps, every tier.
+  {
+    let floors = 0, sealed = 0, freestanding = 0, missedNiche = 0;
+    for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89]) {
+      const c = new Core(seed);
+      c.start("fighter", "human", "Sweep");
+      for (const mapId of Object.keys(MAPS)) {
+        for (let tier = 1; tier <= MAPS[mapId].tiers; tier++) {
+          const m = c.getMap(mapId + ":d" + tier);
+          floors++;
+          if (!c.escapable(m)) {
+            sealed++;
+            console.log("  sealed floor:", m.key, "seed", seed);
+          }
+          const wall = (x, y) => x < 0 || y < 0 || y >= m.h || x >= m.w || m.grid[y][x] !== ".";
+          const walls = (x, y) => wall(x, y - 1) + wall(x, y + 1) + wall(x + 1, y) + wall(x - 1, y);
+          const stWalls = walls(m.stairs.x, m.stairs.y);
+          if (!stWalls) {
+            freestanding++;
+            console.log("  free-standing stairs:", m.key, "seed", seed);
+          } else if (stWalls < 3 && m.floors.some((f) => walls(f.x, f.y) === 3)) {
+            missedNiche++;
+            console.log("  stairs skipped an available wall niche:", m.key, "seed", seed);
+          }
+        }
+      }
+    }
+    check(`every generated floor escapable (${floors} floors, 10 worlds)`, sealed === 0, `${sealed} sealed`);
+    check(`stairs always hug a wall (${floors} floors)`, freestanding === 0, `${freestanding} free-standing`);
+    check(`stairs take a 3-sided wall niche whenever one exists (${floors} floors)`, missedNiche === 0, `${missedNiche} misses`);
+  }
+
+  // Old saves heal: re-create the classic seal (a locked strongroom door moved
+  // into the only open approach of the stairs), save it, and prove loadFrom
+  // unlocks it back into an escapable floor.
+  {
+    let tested = false, healed = false;
+    outer:
+    for (const seed of [1, 2, 3]) {
+      const c = new Core(seed);
+      c.start("fighter", "human", "Heal");
+      for (const mapId of Object.keys(MAPS)) {
+        for (let t = 1; t <= MAPS[mapId].tiers; t++) {
+          const m = c.getMap(mapId + ":d" + t);
+          const wall = (x, y) => x < 0 || y < 0 || y >= m.h || x >= m.w || m.grid[y][x] !== ".";
+          const st = m.stairs;
+          if (wall(st.x, st.y - 1) + wall(st.x, st.y + 1) + wall(st.x + 1, st.y) + wall(st.x - 1, st.y) !== 3) continue;
+          const open = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+            .map(([dx, dy]) => [st.x + dx, st.y + dy])
+            .find(([x, y]) => !wall(x, y));
+          const door = m.entities.find(e => e.type === "door");
+          if (!door || !open) continue;
+          door.locked = true; door.x = open[0]; door.y = open[1];
+          const save = c.toJSON();
+          const fresh = new Core(seed + 5000);
+          fresh.start("fighter", "human", "Healed");
+          if (!fresh.loadFrom(save)) continue;
+          const healedMap = fresh.maps.get(m.key);
+          const sealedDoor = healedMap.entities.find(e => e.type === "door" && e.x === open[0] && e.y === open[1]);
+          tested = true;
+          healed = fresh.escapable(healedMap) && !!sealedDoor && sealedDoor.locked === false;
+          break outer;
+        }
+      }
+    }
+    check("sealed sticky floors from old saves heal on load", tested && healed);
+  }
+
   const browser = await chromium.launch({
     args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
   });
@@ -183,9 +256,17 @@ async function walkTo(page, tx, ty, limit = 300) {
 
   const stairMesh = await page.evaluate(() => {
     const g = window.game.debugScene();
-    return !!g && !!g.userData.stairsGroup && g.userData.stairsGroup.children.length >= 8;
+    const grp = g && g.userData.stairsGroup;
+    const m = window.game.core.getMap("greenhills:d1");
+    const wall = (x, y) => x < 0 || y < 0 || y >= m.h || x >= m.w || m.grid[y][x] !== ".";
+    const st = m.stairs, bw = grp ? grp.userData.backWall : null;
+    const hugged = !bw ||
+      (bw === "N" && wall(st.x, st.y - 1)) || (bw === "S" && wall(st.x, st.y + 1)) ||
+      (bw === "E" && wall(st.x + 1, st.y)) || (bw === "W" && wall(st.x - 1, st.y));
+    return { framed: !!grp && grp.children.length >= 8, hugged };
   });
-  check("stairs are a framed 3D structure, not an open hole", stairMesh);
+  check("stairs are a framed 3D structure, not an open hole", stairMesh.framed);
+  check("the staircase turns its back into the wall it hugs", stairMesh.hugged);
 
   const voxels = await page.evaluate(async () => {
     const c = window.game.core;

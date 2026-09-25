@@ -6,7 +6,7 @@ import {
   SHOP, VENDORS, ELEMENTS, WARD_ITEMS, floorElement, FAMILIES,
   BLESSINGS, CURSES, MONSTERS, BOSSES, MAPS, QUEST_ITEM_NAMES
 } from "./data.js";
-import { generateLayout, generateOutdoor, layoutArchetype, makeRng, hashStr } from "./gen.js";
+import { generateLayout, generateOutdoor, layoutArchetype, makeRng, hashStr, isCutCell } from "./gen.js";
 
 export const TOWN_KEY = "town";
 export const dungeonKey = (mapId, tier) => mapId + ":d" + tier;
@@ -147,10 +147,19 @@ export class Core {
     const map = { key, kind: "dungeon", mapId, tier, arch, element: floorElement(mapId, tier), name: def.name, grid, floors, entities: [], stairs: null, spawn: null, w: grid[0].length, h: grid.length };
 
     map.spawn = floors[Math.floor(rng() * floors.length)];
-    let stairs = floors[0], bestD = -1;
+    // Stairs prefer a 3-sided wall pocket (an open-front alcove: wall behind
+    // and on both flanks), then a corner, then a bare hug — the farther from
+    // the entry, the better. Free-standing stairs in the middle of a hall read
+    // as a random arch and are hard to spot or path to.
+    const isWallCell = (x, y) => x < 0 || y < 0 || y >= map.h || x >= map.w || grid[y][x] !== ".";
+    let stairs = floors[0], bestScore = -1;
     for (const f of floors) {
-      const d = Math.abs(f.x - map.spawn.x) + Math.abs(f.y - map.spawn.y);
-      if (d > bestD) { bestD = d; stairs = f; }
+      const walls = isWallCell(f.x, f.y - 1) + isWallCell(f.x, f.y + 1) +
+        isWallCell(f.x + 1, f.y) + isWallCell(f.x - 1, f.y);
+      if (!walls) continue;
+      const score = walls * 10000 +
+        Math.abs(f.x - map.spawn.x) + Math.abs(f.y - map.spawn.y);
+      if (score > bestScore) { bestScore = score; stairs = f; }
     }
     map.stairs = stairs;
     let portalCell = map.spawn;
@@ -170,6 +179,15 @@ export class Core {
       }
       return null;
     };
+    // Placement for anything that can block or lock a tile: never on an
+    // articulation cell, so no door, chest, or monster can seal the floor.
+    const freeCellSafe = () => {
+      for (let t = 0; t < 30; t++) {
+        const f = freeCell();
+        if (f && !isCutCell(grid, f.x, f.y)) return f;
+      }
+      return null;
+    };
 
     // 3-4 monster species per dungeon tier, harder tiers and maps scale up.
     const pool = def.monsters.filter(m => MONSTERS[m].minTier <= tier);
@@ -177,11 +195,11 @@ export class Core {
     map.monsterKinds = kinds.map(k => MONSTERS[k].name);
     const count = 4 + tier + Math.floor(rng() * 3);
     for (let i = 0; i < count; i++) {
-      const cell = freeCell();
+      const cell = freeCellSafe();
       if (cell) map.entities.push(this.makeMonster(kinds[Math.floor(rng() * kinds.length)], mapId, tier, cell.x, cell.y, rng));
     }
     if (tier === def.tiers) {
-      const cell = freeCell();
+      const cell = freeCellSafe() || freeCell();
       const boss = BOSSES[def.boss];
       if (cell) map.entities.push({
         uid: nextUid(), type: "monster", monsterId: def.boss, boss: true,
@@ -198,7 +216,7 @@ export class Core {
     // Chests hold gold and gear; locked ones bite unless you carry an iron key.
     const chestCount = 1 + (rng() < 0.55 ? 1 : 0);
     for (let i = 0; i < chestCount; i++) {
-      const cell = freeCell();
+      const cell = freeCellSafe();
       if (!cell) continue;
       const loot = [];
       const lootCount = 1 + (rng() < 0.4 ? 1 : 0);
@@ -213,16 +231,50 @@ export class Core {
       });
     }
     // One locked strongroom per depth: an iron key turns its stash to loot.
-    const doorCell = freeCell();
-    if (doorCell) map.entities.push({
-      uid: nextUid(), type: "door", x: doorCell.x, y: doorCell.y, locked: true,
-      glyph: "‡", color: "#b06030",
-      stash: {
-        gold: 20 + tier * 18 + Math.floor(rng() * 20),
-        items: [genItem(mapId, Math.min(12, tier + 2), rng, false, this.player && this.player.classId), genItem(mapId, Math.min(12, tier + 2), rng, false, this.player && this.player.classId)]
-      }
-    });
+    // Doors sit only on non-articulation cells and an iron key always lies on
+    // the open side, so a locked door can guard loot but never the exit.
+    let door = null;
+    const doorCell = freeCellSafe();
+    if (doorCell) {
+      door = {
+        uid: nextUid(), type: "door", x: doorCell.x, y: doorCell.y, locked: true,
+        glyph: "‡", color: "#b06030",
+        stash: {
+          gold: 20 + tier * 18 + Math.floor(rng() * 20),
+          items: [genItem(mapId, Math.min(12, tier + 2), rng, false, this.player && this.player.classId), genItem(mapId, Math.min(12, tier + 2), rng, false, this.player && this.player.classId)]
+        }
+      };
+      map.entities.push(door);
+      const keyCell = freeCellSafe();
+      if (keyCell) map.entities.push({ uid: nextUid(), type: "item", item: makeKey(), x: keyCell.x, y: keyCell.y });
+    }
+
+    // Hard solvability guarantee: with the strongroom door and every locked
+    // chest still shut, the stairs and the return portal must be reachable
+    // from spawn, and any strongroom key must be reachable too. If a roll
+    // breaks the rule, unlock the door; if that is not enough, unlock chests.
+    let reach = reachableFrom(map, lockedWalls(map));
+    const closedOff = () => {
+      if (!reach.has(map.stairs.x + "," + map.stairs.y)) return true;
+      const portal = map.entities.find((e) => e.type === "portal");
+      if (portal && !reach.has(portal.x + "," + portal.y)) return true;
+      return !!door && !map.entities.some((e) =>
+        e.type === "item" && e.item && e.item.kind === "key" && reach.has(e.x + "," + e.y));
+    };
+    if (door && closedOff()) { door.locked = false; reach = reachableFrom(map, lockedWalls(map)); }
+    if (closedOff()) for (const e of map.entities) if (e.type === "chest" && e.locked) e.locked = false;
     return map;
+  }
+
+  // Solver's view of a floor: with every locked door and locked chest still
+  // shut, can the player still reach the stairs down and the return portal?
+  // The builder enforces this invariant; the test sweep re-proves it.
+  escapable(map) {
+    if (!map || map.kind !== "dungeon" || !map.stairs) return true;
+    const reach = reachableFrom(map, lockedWalls(map));
+    const portal = map.entities.find((e) => e.type === "portal");
+    return reach.has(map.stairs.x + "," + map.stairs.y) &&
+      (!portal || reach.has(portal.x + "," + portal.y));
   }
 
   makeMonster(monsterId, mapId, tier, x, y, rng) {
@@ -1016,6 +1068,17 @@ export class Core {
     this.screen = "play";
     this.dead = false;
     this.maps = new Map((data.maps || []).map(m => [m.key, { ...m, floors: null }]));
+    // Heal sticky floors saved before the no-soft-lock rule: if some combo of
+    // locked doors and chests would seal the stairs, unlock the doors first
+    // and the chests second, so an older save can never keep its hero trapped.
+    for (const map of this.maps.values()) {
+      if (map.kind !== "dungeon" || !map.stairs) continue;
+      if (this.escapable(map)) continue;
+      for (const e of map.entities || []) if (e.type === "door" && e.locked) e.locked = false;
+      if (!this.escapable(map)) {
+        for (const e of map.entities || []) if (e.type === "chest" && e.locked) e.locked = false;
+      }
+    }
     if (this.player && this.eff()) { /* derived stats recompute from attrs+gear */ }
     return true;
   }
@@ -1200,6 +1263,52 @@ function makeScrollIdentify() {
 function makeManaPotion() {
   return { uid: nextUid(), kind: "potion", effect: "mana", name: "Blue Potion", glyph: "!", color: "#7090ff", icon: "delapouite__magic-potion", ident: true };
 }
+// Which way the staircase backs into the masonry. Prefers a true alcove
+// (wall behind AND on both flanks, single open front — a |stairs| niche) and
+// falls back to any adjacent wall. Returns "N"|"S"|"E"|"W" or null when the
+// stairs stand free (only possible on older saved floors).
+export function stairsBackDir(map) {
+  if (!map || !map.stairs) return null;
+  const wall = (x, y) => x < 0 || y < 0 || y >= map.h || x >= map.w || map.grid[y][x] !== ".";
+  const { x, y } = map.stairs;
+  const wN = wall(x, y - 1), wS = wall(x, y + 1), wW = wall(x - 1, y), wE = wall(x + 1, y);
+  if (!wN && wS && wW && wE) return "N";
+  if (!wS && wN && wW && wE) return "S";
+  if (!wW && wE && wN && wS) return "E";
+  if (!wE && wW && wN && wS) return "W";
+  if (wN) return "N";
+  if (wS) return "S";
+  if (wE) return "E";
+  if (wW) return "W";
+  return null;
+}
+
+// Entities that seal tiles until a key or a fight resolves them. For the
+// solvability invariant only LOCKED ones count as walls: unlocked doors open
+// by touch and monsters can be fought through.
+function lockedWalls(map) {
+  return map.entities.filter((e) =>
+    (e.type === "door" && e.locked) || (e.type === "chest" && e.locked));
+}
+
+// Floor cells reachable from the spawn cell, four-directional, treating the
+// given blocker entities as walls. Grid rows are strings.
+function reachableFrom(map, blockers) {
+  const wall = new Set(blockers.map((e) => e.x + "," + e.y));
+  const seen = new Set([map.spawn.x + "," + map.spawn.y]);
+  const stack = [[map.spawn.x, map.spawn.y]];
+  while (stack.length) {
+    const [x, y] = stack.pop();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (ny < 0 || nx < 0 || ny >= map.h || nx >= map.w) continue;
+      if (map.grid[ny][nx] !== "." || wall.has(nx + "," + ny) || seen.has(nx + "," + ny)) continue;
+      seen.add(nx + "," + ny); stack.push([nx, ny]);
+    }
+  }
+  return seen;
+}
+
 function makeKey() {
   return { uid: nextUid(), kind: "key", name: "Iron Key", glyph: "k", color: "#c0c0d0", icon: null, ident: true };
 }

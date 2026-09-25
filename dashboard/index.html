@@ -185,7 +185,7 @@ async function refresh() {
     "<td>" + (e.conf == null ? "" : e.conf.toFixed(2)) + "</td>" +
     "<td class='" + (String(e.via).startsWith("laya") ? "good" : String(e.via).startsWith("safety") ? "warn" : String(e.via).startsWith("watchdog") ? "bad" : "dim") + "'>" + esc(e.via) + "</td>" +
     "<td>" + esc(e.action) + "</td>" +
-    "<td class='dim'>" + esc(e.goal || "") + (e.plan ? " <span class='warn'>▸" + esc(e.plan) + "</span>" : "") + "</td>" +
+    "<td class='dim'>" + esc(e.goal || "") + (e.cycle ? " <span class='bad' title='repeat cycle detected'>⟳" + esc(e.cycle) + "</span>" : "") + (e.plan ? " <span class='warn'>▸" + esc(e.plan) + "</span>" : "") + "</td>" +
     "<td>" + (e.hpRatio != null ? Math.round(e.hpRatio * 100) + "%" : "") + "</td>" +
     "<td class='dim'>" + (e.map || "") + "</td></tr>").join("");
   $("recent").innerHTML = rows ? "<tr><th>t</th><th>mode</th><th>intent</th><th>conf</th><th>via</th><th>action</th><th>goal</th><th>hp</th><th>map</th></tr>" + rows

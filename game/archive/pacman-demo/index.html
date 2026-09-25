@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pac-Man 3D (three.js)</title>
+<style>
+  body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: "Courier New", monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h1 { color: #ffd700; letter-spacing: 4px; margin: 14px 0 4px; }
+  #hud {
+    width: 504px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 18px;
+    margin: 6px 0;
+  }
+  #lives { color: #ffd700; }
+  #scene { display: block; }
+  #message {
+    height: 24px;
+    margin-top: 6px;
+    color: #ffff00;
+    font-size: 16px;
+    text-align: center;
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+  <h1>PAC-MAN 3D</h1>
+  <div id="hud">
+    <span id="score">SCORE: 0</span>
+    <span id="hi">HI: 0</span>
+    <span id="lives">&#9679;&#9679;&#9679;</span>
+  </div>
+  <div id="scene"></div>
+  <div id="message">Press an arrow key or WASD to move</div>
+  <script type="module" src="game.js"></script>
+</body>
+</html>

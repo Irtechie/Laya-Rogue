@@ -13,6 +13,14 @@ http.createServer((req, res) => {
   if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end(); return; }
+    // The autopilot tag is injected here so index.html stays a pure upstream
+    // copy: game updates become a plain file sync, no re-editing required.
+    if (path.basename(file) === "index.html") {
+      let html = data.toString();
+      if (!html.includes("src/laya.js"))
+        html = html.replace("</body>", '  <script type="module" src="src/laya.js"></script>\n</body>');
+      data = Buffer.from(html);
+    }
     res.writeHead(200, { "content-type": MIME[path.extname(file)] || "application/octet-stream" });
     res.end(data);
   });

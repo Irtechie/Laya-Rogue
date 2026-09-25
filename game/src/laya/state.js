@@ -16,10 +16,12 @@ export const pilot = {
   sid: Math.random().toString(36).slice(2, 8), lastCommitAt: Date.now()
 };
 
+export function isRej(sig) { return (macro.rejCool[sig] || 0) > Date.now(); }
+
 export const macro = {
   mode: "idle", errand: "", errandGoal: null, diveZone: null,
   stuckTicks: 0, lastPos: "", hist: [], oscTicks: 0, engageCoolUntil: 0,
-  clearedZones: {}, travelCool: {},
+  clearedZones: {}, travelCool: {}, cycleZone: null, rejCool: {},
   visitKey: "", visits: new Set(), frontier: null, frontierAge: 0,
   lootFails: {}, goal: null, plan: null
 };

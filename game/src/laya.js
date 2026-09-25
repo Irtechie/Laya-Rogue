@@ -55,6 +55,11 @@ async function tick() {
         macro.oscTicks = 0;
         return commit({ type: "travel", target: "town" }, "watchdog:town-osc", f);
       }
+      if (macro.oscTicks > 25 && f.mapKind === "dungeon") {
+        // cooldowns did not untangle it - the LEVEL geometry is the trap: leave it
+        macro.oscTicks = 0; macro.plan = null;
+        return commit({ type: "ascend" }, "watchdog:osc-ascend", f);
+      }
     } else {
       macro.oscTicks = 0;
     }
@@ -66,10 +71,26 @@ async function tick() {
       let cyc = true;
       for (let i = n - k * 2; i < n - k; i++) if (h[i] !== h[i + k]) { cyc = false; break; }
       if (cyc) {
-        const zone = f.mapId || recent[recent.length - 1].split(":")[0].split(" ")[1];
-        if (zone) macro.travelCool[zone] = Date.now() + 20000; // stop re-dropping into this zone
+        // attribute ONLY from the repeated cycle entries themselves: the zone
+        // is whichever dungeon map actually appears in the loop, same spots.
+        let zone = null;
+        for (let i = n - k * 2; i < n; i++) {
+          const mzn = h[i].match(/^([^:]+):d\d+:/);
+          if (mzn) zone = mzn[1];
+        }
+        if (zone) {
+          macro.travelCool[zone] = Date.now() + 20000; // stop re-dropping into this zone
+          macro.cycleZone = zone;                      // telemetry marker for the dashboard
+        }
         macro.goal = null; macro.frontier = null;
         macro.engageCoolUntil = Date.now() + 5000;
+        macro.cycleStrikes = (macro.cycleStrikes || 0) + 1;
+        macro.hist = []; // fresh window so the next detection takes a full loop
+        if (macro.cycleStrikes >= 3 && f.mapKind === "dungeon") {
+          // three loops on one level = the geometry itself traps us: leave it
+          macro.cycleStrikes = 0; macro.plan = null;
+          return commit({ type: "ascend" }, "watchdog:cycle-ascend", f);
+        }
         break;
       }
     }
@@ -110,13 +131,31 @@ async function tick() {
 
 function commit(action, why, f, decision, payload, bridgeNote, asked) {
   pilot.lastCommitAt = Date.now(); // supervisor heartbeat
+  // log-based spam detector: 4 identical item/shop actions in a row = the game
+  // keeps refusing (level/class/gold gates) - cool that signature for 30 s
+  const sig = action.type + ":" + (action.uid !== undefined ? action.uid : action.key || "");
+  if (sig === (pilot.lastSig || "") && sig !== action.type + ":") {
+    pilot.sigStreak = (pilot.sigStreak || 0) + 1;
+  } else {
+    pilot.lastSig = sig; pilot.sigStreak = 1;
+  }
+  if (pilot.sigStreak >= 4 && (action.uid !== undefined || action.key)) {
+    macro.rejCool[sig] = Date.now() + 30000; pilot.sigStreak = 0;
+  }
   if (action.type === "move" && action.dx === 0 && action.dy === 0 && f.mapKind === "dungeon") {
     action = randomStep(); why += "+unstuck";
   }
   const took = game().core.act(action);
-  if (!took && ["move", "skill"].includes(action.type) && ++failStreak >= 2) {
-    game().core.act(randomStep()); failStreak = 0; why += "+unstuck";
-  } else if (took) failStreak = 0;
+  if (!took) {
+    if (action.type === "travel" && action.target) {
+      // "the way back is sealed" (stale cameFrom / layout drift): do not
+      // re-issue this trip - diveChoice skips cooled zones, we route around it
+      macro.travelCool[action.target] = Date.now() + 30000;
+      macro.errand = why + "+sealed";
+    } else if (["move", "skill"].includes(action.type) && ++failStreak >= 2) {
+      game().core.act(randomStep()); failStreak = 0; why += "+unstuck";
+    }
+  } else failStreak = 0;
   game().afterAction();
   const t = Math.round((Date.now() - sessionStart) / 1000);
   const actionLabel = action.type + (action.slot !== undefined ? " #" + action.slot
@@ -134,6 +173,7 @@ function commit(action, why, f, decision, payload, bridgeNote, asked) {
     gold: s.player.gold, level: s.player.level, kills: s.kills, deaths: pilot.deaths,
     bag: f.bag.length, map: s.map.key, dead: s.dead, explored: exploredPct(f),
     goal: macro.goal ? macro.goal.kind + "(" + macro.goal.x + "," + macro.goal.y + ")" : null,
+    cycle: macro.cycleZone && macro.travelCool[macro.cycleZone] > Date.now() ? macro.cycleZone : null,
     plan: macro.plan ? macro.plan.source + ":" + macro.plan.steps[macro.plan.i].name +
       " " + (macro.plan.i + 1) + "/" + macro.plan.steps.length : null,
     latencyMs: (payload && payload.latencyMs) || null,
@@ -219,17 +259,24 @@ setInterval(() => {
   // repeated tick errors OR a long freeze: reload once per 2 min; autosave resumes
   if ((errStrike >= 8 || staleMs > 30000) && Date.now() - lastReload > 120000) {
     errStrike = 0; lastReload = Date.now();
+    try { sessionStorage.setItem("layaResume", "1"); } catch (e) {} // tell autostart to walk back in via Continue
     location.reload();
   }
 }, 3000);
 
 if (new URLSearchParams(location.search).get("laya") === "1") {
+  let resume = false;
+  try { resume = sessionStorage.getItem("layaResume") === "1"; sessionStorage.removeItem("layaResume"); } catch (e) {}
   const autostart = setInterval(() => {
     const g = window.game;
     if (!g || !g.ready) return;
-    if (g.core.screen !== "play") { // after a supervisor reload, walk back in
-      const c = document.getElementById("continue");
-      if (c && c.style.display !== "none") c.click();
+    if (g.core.screen !== "play") {
+      // only auto-Continue after a supervisor crash-reload; a NEW RUN stays on
+      // the create screen so the operator can click Begin with a fresh world
+      if (resume) {
+        const c = document.getElementById("continue");
+        if (c && c.style.display !== "none") c.click();
+      }
       return;
     }
     if (g.core.player && !pilot.on) {

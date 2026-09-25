@@ -9,7 +9,7 @@ import { game, macro } from "./state.js";
 export function noteGoal(f, kind, x, y) {
   const g = macro.goal;
   if (g && g.kind === kind && g.x === x && g.y === y) return; // keep commitment
-  macro.goal = { kind, x, y, best: f.man(x, y, f.p.x, f.p.y), age: 0 };
+  macro.goal = { kind, x, y, best: f.man(x, y, f.p.x, f.p.y), age: 0, life: 0 };
 }
 
 export function goalProgress(f) {
@@ -18,6 +18,13 @@ export function goalProgress(f) {
   if (g.kind === "engage") { macro.goal = null; return; } // roaming monster, no fixed spot
   const d = f.man(g.x, g.y, f.p.x, f.p.y);
   if (d <= 1) { macro.goal = null; return; }              // arrived
+  // Hard lifetime: a walk whose distance keeps dipping on oscillations
+  // resets age forever - no loot goal may own more than ~60s of the run.
+  if (g.kind === "loot" && ++g.life >= 60) {
+    (macro.lootFails[f.p.mapKey] = macro.lootFails[f.p.mapKey] || {})[g.x + "," + g.y] = 1;
+    macro.goal = null;
+    return;
+  }
   if (d < g.best) { g.best = d; g.age = 0; }              // making progress
   else if (++g.age >= 12) {                              // ~1.4s circling -> abandon
     if (g.kind === "loot") (macro.lootFails[f.p.mapKey] = macro.lootFails[f.p.mapKey] || {})[g.x + "," + g.y] = 1;

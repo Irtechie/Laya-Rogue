@@ -5,7 +5,7 @@
 import { SKILLS, MAPS, SPELLBOOKS, SHOP, CLASSES } from "../data.js";
 import { walkTo } from "./actions.js";
 import { questTargets } from "./facts.js";
-import { IDENT_PRICE } from "./state.js";
+import { IDENT_PRICE, isRej } from "./state.js";
 
 function scoreGear(it) {
   const affix = key => (it.affixes || []).filter(a => a.key === key).reduce((s, a) => s + a.value, 0);
@@ -62,7 +62,7 @@ export function townErrand(f) {
     if (f.vendor && f.gold >= IDENT_PRICE) return { act: { type: "identService", uid: it.uid }, why: "errand:identify@vendor" };
     if (mer) {
       const near = f.man(mer.x, mer.y, f.p.x, f.p.y) <= 2;
-      if (near && f.gold >= 30) return { act: { type: "buy", key: "scroll-identify" }, why: "errand:buy:scroll" };
+      if (near && f.gold >= 30 && !isRej("buy:scroll-identify")) return { act: { type: "buy", key: "scroll-identify" }, why: "errand:buy:scroll" };
       if (f.gold >= Math.max(IDENT_PRICE, 30)) {
         const act = walkTo(f, mer.x, mer.y, 2);
         return { act: act || { type: "wait" }, why: "errand:walk:merchant-ident" };
@@ -83,17 +83,19 @@ export function townErrand(f) {
       return { act: { type: "equip", uid: best.uid }, why: "errand:equip:" + slot };
     }
   }
-  // 5. study books when learnable
-  const book = f.bag.find(i => i.kind === "book");
-  if (book && SPELLBOOKS[book.bookId] && !f.p.skills.includes(SPELLBOOKS[book.bookId].teaches)) {
-    return { act: { type: "useItem", uid: book.uid }, why: "errand:study" };
+  // 5. study books when learnable - and only at the book's level or the game
+  //    spams "you need level N to comprehend it" every tick
+  const sb = f.bag.find(i => i.kind === "book" && SPELLBOOKS[i.bookId] &&
+    !f.p.skills.includes(SPELLBOOKS[i.bookId].teaches));
+  if (sb && f.p.level >= ((SPELLBOOKS[sb.bookId] || {}).reqLevel || 1) && !isRej("useItem:" + sb.uid)) {
+    return { act: { type: "useItem", uid: sb.uid }, why: "errand:study" };
   }
   // 5b. buy a spellbook we can actually learn from Ianna, if we can afford it
   const wb = wantedBook(f);
   if (wb) {
     const sage = npcAt("sage");
     if (sage) {
-      if (f.man(sage.x, sage.y, f.p.x, f.p.y) <= 2) return { act: { type: "buy", key: wb.key }, why: "errand:buy:book" };
+      if (f.man(sage.x, sage.y, f.p.x, f.p.y) <= 2 && !isRej("buy:" + wb.key)) return { act: { type: "buy", key: wb.key }, why: "errand:buy:book" };
       const act = walkTo(f, sage.x, sage.y, 2);
       return { act: act || { type: "wait" }, why: "errand:walk:ianna" };
     }
@@ -118,7 +120,7 @@ export function townErrand(f) {
   if (potions < 2 && f.gold >= 60) {
     if (mer) {
       const near = f.man(mer.x, mer.y, f.p.x, f.p.y) <= 2;
-      if (near) return { act: { type: "buy", key: "potion" }, why: "errand:buy:potion" };
+      if (near && !isRej("buy:potion") && f.gold >= 60) return { act: { type: "buy", key: "potion" }, why: "errand:buy:potion" };
       const act = walkTo(f, mer.x, mer.y, 2);
       return { act: act || { type: "wait" }, why: "errand:walk:pella" };
     }
