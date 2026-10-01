@@ -9,9 +9,9 @@ $py = "e:\layaplayground\.venv\Scripts\python.exe"
 $srv = "E:\roguems-laya\bridge\server.py"
 $log = "E:\roguems-laya\runs\bridge.log"
 
-function Kill-Strays([int]$keepPid) {
+function Kill-Strays([int[]]$keepPids) {
   Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
-    Where-Object { $_.ProcessId -ne $keepPid -and $_.CommandLine -match "\\bridge\\server\.py" } |
+    Where-Object { $keepPids -notcontains $_.ProcessId -and $_.CommandLine -match "\\bridge\\server\.py" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
@@ -19,11 +19,17 @@ while ($true) {
   Kill-Strays 0
   Start-Sleep -Seconds 1
   Add-Content $log ("[{0}] starting bridge" -f (Get-Date -Format "HH:mm:ss"))
-  $p = Start-Process $py -ArgumentList $srv -NoNewWindow -PassThru `
-        -RedirectStandardAppend $log -RedirectStandardErrorAppend $log
+  # NOTE: this pwsh (7.6) has NO -RedirectStandardAppend; use plain redirects.
+  $out = "E:\roguems-laya\runs\bridge.out"; $berr = "E:\roguems-laya\runs\bridge.err"
+  $p = Start-Process $py -ArgumentList @("-u", $srv) -NoNewWindow -PassThru `
+        -RedirectStandardOutput $out -RedirectStandardError $berr
+  if (-not $p) { Add-Content $log "  Start-Process FAILED"; Start-Sleep -Seconds 5; continue }
   while (-not $p.HasExited) {
     Start-Sleep -Seconds 10
-    Kill-Strays $p.Id   # continuous reaper: no zombie second instance while we live
+    # keep the trampoline AND its real python child (uv venvs re-exec)
+    $kids = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)" |
+                ForEach-Object { $_.ProcessId })
+    Kill-Strays (@($p.Id) + $kids)   # continuous reaper: no zombie second instance
   }
   Add-Content $log ("[{0}] bridge EXITED - restarting in 2s" -f (Get-Date -Format "HH:mm:ss"))
   Start-Sleep -Seconds 2
